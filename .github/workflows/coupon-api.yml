@@ -41,5 +41,7 @@ jobs:
           file: ./Dockerfile
           push: ${{ github.event_name == 'push' }}
           tags: |
-            ghcr.io/mdkasims-ccg/mango.services.couponapi:latest
             ghcr.io/mdkasims-ccg/mango.services.couponapi:${{ github.sha }}
+            ${{ github.ref == 'refs/heads/main' && 'ghcr.io/mdkasims-ccg/mango.services.couponapi:latest' || '' }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

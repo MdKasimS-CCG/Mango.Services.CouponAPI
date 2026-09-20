@@ -7,14 +7,48 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using System.Text;
+using DotNetEnv;
+using Microsoft.Extensions.Options;
+
+bool isRunningInContainer =
+    Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER") == "true";
+
+if (!isRunningInContainer)
+{
+    Env.Load(".env");
+}
 
 var builder = WebApplication.CreateBuilder(args);
 
+builder.Configuration.AddEnvironmentVariables();
+
+
+var mangoOptions = new MangoOptions
+{
+    Secret =
+        builder.Configuration["ApiSettings:Secret"]
+        ?? string.Empty,
+
+    Issuer =
+        builder.Configuration["ApiSettings:Issuer"]
+        ?? string.Empty,
+
+    Audience =
+        builder.Configuration["ApiSettings:Audience"]
+        ?? string.Empty,
+
+    DefaultConnection =
+        builder.Configuration["ConnectionStrings:DefaultConnection"]
+        ?? string.Empty
+};
+
+builder.Services.AddSingleton(
+    Microsoft.Extensions.Options.Options.Create(mangoOptions));
 // Add services to the container.
 
 builder.Services.AddDbContext<AppDbContext>(options =>
 {
-    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection"));
+    options.UseSqlServer(mangoOptions.DefaultConnection);
 });
 
 IMapper mapper = MappingConfig.RegisterMaps().CreateMapper();
@@ -50,7 +84,32 @@ builder.Services.AddSwaggerGen(option =>
 });
 
 //Adding Authentication
-builder.AddAppAuthentication();
+var key = Encoding.ASCII.GetBytes(mangoOptions.Secret);
+
+builder.Services.AddAuthentication(x =>
+{
+    x.DefaultAuthenticateScheme =
+        JwtBearerDefaults.AuthenticationScheme;
+
+    x.DefaultChallengeScheme =
+        JwtBearerDefaults.AuthenticationScheme;
+})
+.AddJwtBearer(x =>
+{
+    x.TokenValidationParameters = new TokenValidationParameters
+    {
+        ValidateIssuerSigningKey = true,
+        IssuerSigningKey =
+            new SymmetricSecurityKey(key),
+
+        ValidateIssuer = true,
+        ValidIssuer = mangoOptions.Issuer,
+
+        ValidateAudience = true,
+        ValidAudience = mangoOptions.Audience
+    };
+});
+
 builder.Services.AddAuthorization();
 
 var app = builder.Build();
@@ -86,4 +145,12 @@ void ApplyMigration()
             _db.Database.Migrate();
         }
     }
+}
+
+public class MangoOptions
+{
+    public string Secret { get; set; } = string.Empty;
+    public string Issuer { get; set; } = string.Empty;
+    public string Audience { get; set; } = string.Empty;
+    public string DefaultConnection { get; set; } = string.Empty;
 }
